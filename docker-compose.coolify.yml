@@ -1,0 +1,209 @@
+# OneUptime on Coolify
+#
+# Deploy as a Coolify "Docker Compose" resource from this Git repository, with
+# "Docker Compose Location" set to /docker-compose.coolify.yml. It must be a
+# Git-based deployment (not a pasted compose file): ClickHouse and the probe
+# read config files from this repo. Enable "Preserve Repository During
+# Deployment" on the resource, or those paths won't exist on the server and
+# ClickHouse fails with "not a directory".
+#
+# Deploy from a branch cut from the same release tag as the image tags below,
+# so the mounted config files match the images. To upgrade, rebase the branch
+# onto the new tag and bump the three oneuptime/* image tags together.
+#
+# Differences from docker-compose.yml:
+#   - Self-contained: no `extends`, no published host ports. Coolify's proxy
+#     (Traefik/Caddy) terminates TLS and routes the domain to ingress:7849.
+#   - Secrets are generated and stored by Coolify (SERVICE_PASSWORD_* magic vars).
+#   - The probe runs on the compose network and reaches OneUptime through
+#     ingress directly, instead of host networking + http://localhost.
+#   - Dropped: probe-2, runner, home, fluentd, fluent-bit, test-server, e2e.
+#
+# Required in Coolify before first deploy:
+#   - Set a domain on the "ingress" service (e.g. https://status.example.com).
+#   - Set HOST to that domain WITHOUT the scheme (e.g. status.example.com).
+
+x-common-variables: &common-variables
+  HOST: ${HOST:?Set HOST to your domain without scheme}
+  HTTP_PROTOCOL: ${HTTP_PROTOCOL:-https}
+  # Coolify's proxy owns 80/443, so OneUptime must not try to run Let's Encrypt.
+  PROVISION_SSL: "false"
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-ERROR}
+  BILLING_ENABLED: "false"
+  IS_ENTERPRISE_EDITION: "false"
+  CAPTCHA_ENABLED: "false"
+  GOOGLE_TAG_MANAGER_ENABLED: "false"
+  ALLOWED_ACTIVE_MONITOR_COUNT_IN_FREE_PLAN: ${ALLOWED_ACTIVE_MONITOR_COUNT_IN_FREE_PLAN:-10}
+  STATUS_PAGE_CNAME_RECORD: ${STATUS_PAGE_CNAME_RECORD:-}
+  DASHBOARD_CNAME_RECORD: ${DASHBOARD_CNAME_RECORD:-}
+
+  SERVER_APP_HOSTNAME: app
+  SERVER_HOME_HOSTNAME: home
+  APP_PORT: 3002
+  HOME_PORT: 1444
+
+  ONEUPTIME_SECRET: ${SERVICE_PASSWORD_64_ONEUPTIMESECRET}
+  ENCRYPTION_SECRET: ${SERVICE_PASSWORD_64_ENCRYPTIONSECRET}
+
+  DATABASE_HOST: postgres
+  DATABASE_PORT: 5432
+  DATABASE_USERNAME: postgres
+  DATABASE_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+  DATABASE_NAME: oneuptimedb
+  DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+
+  VALKEY_HOST: valkey
+  VALKEY_PORT: 6379
+  VALKEY_DB: 0
+  VALKEY_USERNAME: default
+  VALKEY_PASSWORD: ${SERVICE_PASSWORD_VALKEY}
+  VALKEY_TLS_SENTINEL_MODE: "false"
+
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_PORT: 8123
+  CLICKHOUSE_USER: default
+  CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+  CLICKHOUSE_DATABASE: oneuptime
+  CLICKHOUSE_MAX_OPEN_CONNECTIONS: 100
+
+  # Client -> Coolify proxy -> OneUptime nginx: two proxies append to
+  # X-Forwarded-For. Add one more if Cloudflare (proxied) sits in front.
+  TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-2}
+
+  DISABLE_UPDATE_CHECK: ${DISABLE_UPDATE_CHECK:-false}
+
+  # Email/SMS/Slack/etc. are configured in the Admin Dashboard after first
+  # login. Anything else from config.example.env can be added here as needed.
+
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: oneuptimedb
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    restart: always
+    command: valkey-server --requirepass "${SERVICE_PASSWORD_VALKEY}" --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${SERVICE_PASSWORD_VALKEY}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.7
+    restart: always
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DB: oneuptime
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse:/var/lib/clickhouse/
+      # See docker-compose.base.yml for why each of these is needed.
+      - ./Clickhouse/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./Clickhouse/users.d/distributed-insert-tuning.xml:/etc/clickhouse-server/users.d/distributed-insert-tuning.xml:ro
+      - ./Clickhouse/config.d/system-log-ttl.xml:/etc/clickhouse-server/config.d/system-log-ttl.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  app:
+    image: oneuptime/app:13.0.6
+    restart: always
+    environment:
+      <<: *common-variables
+      PORT: 3002
+      REGISTER_PROBE_KEY: ${SERVICE_PASSWORD_64_REGISTERPROBEKEY}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-100}
+      TELEMETRY_CONCURRENCY: ${TELEMETRY_CONCURRENCY:-100}
+      DISABLE_TELEMETRY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  ingress:
+    image: oneuptime/nginx:13.0.6
+    restart: always
+    environment:
+      <<: *common-variables
+      # Tells Coolify to route this service's domain to container port 7849.
+      SERVICE_FQDN_INGRESS_7849:
+      ONEUPTIME_HTTP_PORT: 7849
+      NGINX_INGEST_ACCESS_LOG: ${NGINX_INGEST_ACCESS_LOG:-on}
+      DISABLE_TELEMETRY: "true"
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: "1"
+      net.ipv4.tcp_fin_timeout: "15"
+    depends_on:
+      - app
+
+  # Built-in global probe that executes your monitors. Without at least one
+  # probe (this one or an external one), monitors never run.
+  probe-1:
+    image: oneuptime/probe:13.0.6
+    restart: always
+    shm_size: 512m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - KILL
+      - NET_RAW
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./Probe/seccomp_profile.json
+    environment:
+      ONEUPTIME_URL: http://ingress:7849
+      REGISTER_PROBE_KEY: ${SERVICE_PASSWORD_64_REGISTERPROBEKEY}
+      PROBE_KEY: ${SERVICE_PASSWORD_64_PROBE1KEY}
+      PROBE_NAME: ${PROBE_NAME:-Probe-1}
+      PROBE_DESCRIPTION: ${PROBE_DESCRIPTION:-Global probe}
+      PROBE_MONITORING_WORKERS: 5
+      PROBE_MONITOR_FETCH_LIMIT: 10
+      PROBE_SYNTHETIC_MONITOR_SCRIPT_TIMEOUT_IN_MS: 60000
+      PROBE_SYNTHETIC_MONITOR_MAX_CONCURRENCY: 4
+      PROBE_SYNTHETIC_MONITOR_MAX_PROCESS_TREE_RSS_BYTES: 1610612736
+      PROBE_SYNTHETIC_MONITOR_MAX_DISK_BYTES: 268435456
+      PROBE_SYNTHETIC_MONITOR_CHROMIUM_SANDBOX_ENABLED: "true"
+      PROBE_CUSTOM_CODE_MONITOR_SCRIPT_TIMEOUT_IN_MS: 60000
+      PROBE_ALLOW_PRIVATE_NETWORK_MONITORS: "false"
+      PORT: 3874
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-ERROR}
+      DISABLE_TELEMETRY: "true"
+    depends_on:
+      - ingress
+
+volumes:
+  postgres:
+  clickhouse:
