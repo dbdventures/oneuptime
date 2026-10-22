@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: Common/package-lock.json
       - name: Set up test services

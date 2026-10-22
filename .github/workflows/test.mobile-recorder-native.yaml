@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: App/FeatureSet/MobileRecorder/package-lock.json
 
@@ -79,7 +79,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: MobileApp/package-lock.json
 
@@ -131,7 +131,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -171,7 +171,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: MobileApp/package-lock.json
 

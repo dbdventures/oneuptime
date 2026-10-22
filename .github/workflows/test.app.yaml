@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           # Restores ~/.npm so the npm install below resolves from cache
           # instead of re-downloading the tree from the registry every run.
           cache: npm
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: '**/package-lock.json'
       # These browser tests render Dashboard sources with fixture API data.
@@ -119,7 +119,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: "26.12.1"
           cache: npm
           cache-dependency-path: '**/package-lock.json'
       # Each suite bundles real Dashboard / Status Page sources with esbuild and

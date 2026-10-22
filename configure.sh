@@ -7,7 +7,7 @@ set -euo pipefail
 DOCKER_COMPOSE_VERSION="2.12.2"
 GOMPLATE_VERSION="3.11.8"
 MINIMUM_DOCKER_VERSION="20.0.0"
-MINIMUM_NODE_VERSION="14.0.0"
+MINIMUM_NODE_VERSION="26.12.1"
 NVM_VERSION="0.40.1"
 REQUIRED_PACKAGES="git curl"
 
@@ -103,8 +103,8 @@ setup_nodejs() {
             export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
             # shellcheck disable=SC1090
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            nvm install lts/*
-            nvm use lts/*
+            nvm install "$MINIMUM_NODE_VERSION"
+            nvm use "$MINIMUM_NODE_VERSION"
             sudo ln -s "$NVM_DIR/versions/node/$(nvm version)/bin/node" "/usr/local/bin/node"
             sudo ln -s "$NVM_DIR/versions/node/$(nvm version)/bin/npm" "/usr/local/bin/npm"
         fi
@@ -113,7 +113,7 @@ setup_nodejs() {
     # Verify Node.js version
     local NODE_VERSION
     NODE_VERSION=$(node --version | cut -d 'v' -f 2)
-    if ! version_gt "$NODE_VERSION" "$MINIMUM_NODE_VERSION"; then
+    if [[ "$NODE_VERSION" != "$MINIMUM_NODE_VERSION" ]] && ! version_gt "$NODE_VERSION" "$MINIMUM_NODE_VERSION"; then
         print_error "Node.js version $NODE_VERSION is too old. Minimum required version is $MINIMUM_NODE_VERSION"
         exit 1
     fi

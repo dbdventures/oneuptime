@@ -6,7 +6,7 @@
 # cost-model) and ships pre-priced workload cost allocations to OneUptime.
 #
 
-FROM public.ecr.aws/docker/library/node:26-bookworm-slim
+FROM public.ecr.aws/docker/library/node:26.12.1-bookworm-slim
 
 # Upgrade the bundled npm CLI so its vendored deps (tar, glob, minimatch,
 # brace-expansion, diff, ip-address, picomatch, ...) pick up security fixes

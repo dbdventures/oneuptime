@@ -4,10 +4,9 @@
 #
 
 # Pull base image nodejs image.
-# Floating on the 26.x patch + alpine3.24 so each rebuild picks up the latest
-# Node and Alpine security patches without manual bumps. Lockfiles still keep
-# JS deps reproducible.
-FROM public.ecr.aws/docker/library/node:26-alpine3.24
+# Pin the October 2026 Node security release; keep the existing Alpine ABI.
+# Lockfiles retain reproducible JavaScript dependencies.
+FROM public.ecr.aws/docker/library/node:26.12.1-alpine3.24
 RUN mkdir /tmp/npm &&  chmod 2777 /tmp/npm && chown 1000:1000 /tmp/npm && npm config set cache /tmp/npm --global
 
 RUN npm config set fetch-retries 5
